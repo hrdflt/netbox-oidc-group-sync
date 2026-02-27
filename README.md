@@ -4,7 +4,7 @@
 ![NetBox 4.0+](https://img.shields.io/badge/netbox-4.0%2B-green.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-orange.svg)
 
-A NetBox plugin that synchronizes OIDC/OAuth2 identity provider groups to NetBox (Django) groups via a configurable mapping table. Works with **Okta**, **Azure AD/Entra ID**, **Google Workspace**, **Keycloak**, **Auth0**, and any standards-compliant OIDC provider.
+A NetBox plugin that synchronizes OIDC/OAuth2 identity provider groups to NetBox groups via a configurable mapping table. Works with **Okta**, **Azure AD/Entra ID**, **Google Workspace**, **Keycloak**, **Auth0**, and any standards-compliant OIDC provider.
 
 ## Features
 
@@ -16,13 +16,13 @@ A NetBox plugin that synchronizes OIDC/OAuth2 identity provider groups to NetBox
 - **REST API** for programmatic management
 - **Full change logging** (NetBox's built-in audit trail)
 
-## GUI Usage
+## Screenshots
 
 The plugin adds an **OIDC Group Sync** section to the NetBox plugins menu:
 
 <img src="docs/menu-bar.png" alt="OIDC Group Sync menu bar" width="400">
 
-### Configuration
+### Plugin Configuration Page
 
 Navigate to **Plugins → OIDC Group Sync → Configuration** to set the global sync mode, group claim name, superuser group names, and auto-creation preferences.
 
@@ -62,7 +62,7 @@ pip install /path/to/netbox-oidc-group-sync/
 
 ### 2. Configure `configuration.py`
 
-Add the plugin, your OIDC provider settings, and the social auth pipeline to `configuration.py`. This example uses Okta — see [IdP Configuration Guides](#idp-configuration-guides) below for other providers.
+Add the plugin, your OIDC provider settings, and the social auth pipeline to `configuration.py`. This example uses Okta — see [IdP Setup Guides](#idp-setup-guides) for other providers.
 
 ```python
 # --- Plugin ---
@@ -78,23 +78,38 @@ SOCIAL_AUTH_OKTA_OPENIDCONNECT_API_URL = 'https://your-org.okta.com/oauth2/'
 SOCIAL_AUTH_OKTA_OPENIDCONNECT_SCOPE = ['openid', 'profile', 'email', 'groups']
 
 # --- Social Auth Pipeline (REQUIRED for group sync) ---
+SOCIAL_AUTH_USERNAME_IS_FULL_EMAIL = True
 SOCIAL_AUTH_PIPELINE = (
     'social_core.pipeline.social_auth.social_details',
     'social_core.pipeline.social_auth.social_uid',
     'social_core.pipeline.social_auth.auth_allowed',
     'social_core.pipeline.social_auth.social_user',
     'social_core.pipeline.user.get_username',
+    'social_core.pipeline.social_auth.associate_by_email',  # <-- Merge by email
     'social_core.pipeline.user.create_user',
     'social_core.pipeline.social_auth.associate_user',
-    'netbox_oidc_group_sync.pipeline.sync_oidc_groups',   # <-- OIDC Group Sync
+    'netbox_oidc_group_sync.pipeline.sync_oidc_groups',     # <-- OIDC Group Sync
     'social_core.pipeline.social_auth.load_extra_data',
     'social_core.pipeline.user.user_details',
 )
 ```
 
-> **⚠️** The `sync_oidc_groups` pipeline step is **required**. Without it, the plugin will be installed but group sync will never execute during login. It must be placed **after** `associate_user` so the Django User object exists before group membership is synchronized.
+> **⚠️** The `sync_oidc_groups` pipeline step is **required**. Without it, the plugin will be installed but group sync will never execute during login. It must be placed **after** `associate_user` so the user object exists before group membership is synchronized.
 
 > **Note:** The `SOCIAL_AUTH_` prefix varies by backend. For the Okta-specific backend, use `SOCIAL_AUTH_OKTA_OPENIDCONNECT_*`. For the generic OIDC backend, use `SOCIAL_AUTH_OIDC_*`. The pipeline configuration is the same for all backends.
+
+> **Note:** You do **not** need a `PLUGINS_CONFIG` block in `configuration.py`. All plugin settings (sync mode, group claim name, superuser groups, auto-create) are managed entirely through the NetBox GUI — see [Plugin Settings](#plugin-settings-gui) below.
+
+#### Email Association Behavior
+
+The `associate_by_email` pipeline step (included above) controls what happens when an OIDC user logs in and a local NetBox user with the same email address already exists:
+
+| Pipeline includes `associate_by_email`? | Behavior |
+|---|---|
+| **Yes** (recommended) | The OIDC account is linked to the existing NetBox user. The user keeps their existing permissions, change log history, and API tokens. |
+| **No** | A new NetBox user is created with a hashed username (e.g., `jdoe_abc123`). The pre-existing local account is left untouched but the user now has two separate identities in NetBox. |
+
+If you are migrating from local authentication or an older SAML integration where usernames are set to the users' email addresses, you almost certainly want `associate_by_email` enabled so that existing users are seamlessly adopted rather than duplicated.
 
 ### 3. Run database migrations
 
@@ -118,9 +133,20 @@ Running migrations:
 sudo systemctl restart netbox netbox-rq
 ```
 
-## IdP Configuration Guides
+### Plugin Settings (GUI)
 
-### Okta Setup
+After installation, navigate to **Plugins → OIDC Group Sync → Configuration** in the NetBox GUI to set:
+
+- **Sync Mode** — Replace or Additive (see [Sync Mode Behavior](#sync-mode-behavior))
+- **Group Claim Name** — The OIDC token claim containing group names (default: `groups`)
+- **Superuser Groups** — Comma-separated OIDC group names that grant superuser (see [Superuser Flag Mapping](#superuser-flag-mapping))
+- **Auto-create Groups** — Whether to create NetBox groups automatically from OIDC claims
+
+These settings are stored in the database and take effect immediately — no restart required after changing them.
+
+## IdP Setup Guides
+
+### Okta
 
 1. In the Okta Admin Console, go to **Applications → your NetBox app → Sign On → OpenID Connect ID Token**
 2. Add a "Groups" claim:
@@ -139,7 +165,7 @@ Example Okta OIDC token groups claim:
 }
 ```
 
-The [installation example](#2-configure-configurationpy) above uses the **Okta-specific backend** (`OktaOpenIdConnect`) with the `SOCIAL_AUTH_OKTA_OPENIDCONNECT_*` prefix. Alternatively, you can use the **generic OIDC backend** with Okta:
+The [Configuration](#2-configure-configurationpy) section above uses the **Okta-specific backend** (`OktaOpenIdConnect`) with the `SOCIAL_AUTH_OKTA_OPENIDCONNECT_*` prefix. Alternatively, you can use the **generic OIDC backend** with Okta:
 
 ```python
 REMOTE_AUTH_BACKEND = 'social_core.backends.open_id_connect.OpenIdConnectAuth'
@@ -149,7 +175,7 @@ SOCIAL_AUTH_OIDC_SECRET = 'your-client-secret'
 SOCIAL_AUTH_OIDC_SCOPE = ['openid', 'profile', 'email', 'groups']
 ```
 
-### Azure AD / Entra ID Setup
+### Azure AD / Entra ID
 
 1. In **Azure Portal → App registrations → your app → Token configuration**
 2. Add optional claim → ID token → `groups`
@@ -165,14 +191,7 @@ Example with group names:
 }
 ```
 
-### Google Workspace Setup
-
-1. Google OIDC doesn't natively include groups in tokens
-2. Use **Google Workspace Admin SDK** or a custom middleware
-3. Alternatively, use the **Google Cloud Identity Groups API**
-4. Consider using `memberOf` claim if available through a proxy/gateway
-
-### Keycloak Setup
+### Keycloak
 
 1. In **Keycloak Admin → Clients → your client → Client scopes → add mapper**
 2. Mapper type: **Group Membership**
@@ -180,7 +199,7 @@ Example with group names:
 4. Full group path: **OFF** (unless you want `/parent/child` format)
 5. Set `group_claim_name` to `groups`
 
-### Auth0 Setup
+### Auth0
 
 1. Use **Auth0 Rules or Actions** to add groups to the ID token
 2. Example Auth0 Action (Post Login):
@@ -196,7 +215,14 @@ exports.onExecutePostLogin = async (event, api) => {
 
 3. Set `group_claim_name` to `https://netbox.example.com/groups`
 
-## Usage
+### Google Workspace
+
+1. Google OIDC doesn't natively include groups in tokens
+2. Use **Google Workspace Admin SDK** or a custom middleware
+3. Alternatively, use the **Google Cloud Identity Groups API**
+4. Consider using `memberOf` claim if available through a proxy/gateway
+
+## Operations
 
 ### Bulk Import
 
@@ -209,9 +235,9 @@ oidc_group_name,group,description
 "NOC Staff",noc-readonly,"Read-only NOC access"
 ```
 
-### 4. Superuser Flag Mapping
+### Superuser Flag Mapping
 
-> **This is separate from group membership.** Group Mappings control which NetBox groups a user belongs to. Superuser mapping controls Django's built-in `is_superuser` permission flag.
+> **This is separate from group membership.** Group Mappings control which NetBox groups a user belongs to. Superuser mapping controls the built-in `is_superuser` permission flag.
 >
 > **Note:** NetBox 4.x removed `is_staff` from its User model entirely, so only `is_superuser` is supported.
 
@@ -221,11 +247,11 @@ In **Configuration**, add OIDC group names to the **Superuser Groups** field (co
 |---|---|
 | **Superuser Groups** | If the user's OIDC token contains **any** of these group names → `is_superuser = True` (full admin access). Otherwise → `is_superuser = False`. |
 
-**Example:** If Okta sends `groups: ["IT-Admins", "Network-Ops"]` and you set **Superuser Groups** to `IT-Admins`, that user becomes a Django superuser on every login. If they're later removed from `IT-Admins` in Okta, they lose superuser on next login.
+**Example:** If Okta sends `groups: ["IT-Admins", "Network-Ops"]` and you set **Superuser Groups** to `IT-Admins`, that user becomes a superuser on every login. If they're later removed from `IT-Admins` in Okta, they lose superuser on next login.
 
 Leave this field empty to skip superuser management entirely (the plugin won't touch that flag).
 
-## REST API
+### REST API
 
 The plugin provides a REST API under `/api/plugins/oidc-group-sync/`:
 
@@ -234,8 +260,6 @@ The plugin provides a REST API under `/api/plugins/oidc-group-sync/`:
 | `/api/plugins/oidc-group-sync/mappings/` | GET, POST | List/create mappings |
 | `/api/plugins/oidc-group-sync/mappings/{id}/` | GET, PUT, PATCH, DELETE | Retrieve/update/delete a mapping |
 | `/api/plugins/oidc-group-sync/config/` | GET, PUT, PATCH | View/update singleton config |
-
-### Examples
 
 ```bash
 # List all mappings
@@ -249,14 +273,16 @@ curl -X POST -H "Authorization: Token $NETBOX_TOKEN" \
   https://netbox.example.com/api/plugins/oidc-group-sync/mappings/
 ```
 
-## Sync Mode Behavior
+### Sync Mode Behavior
 
 | Mode | On Login | Description |
 |---|---|---|
 | **Replace** | User's NetBox groups are completely replaced with the mapped OIDC groups | Clean state on every login. If user's OIDC groups change in the IdP, NetBox reflects it immediately. |
 | **Additive** | OIDC-mapped groups are added to user's existing groups | Groups are never removed. Manual group assignments persist. |
 
-## Debug Logging
+## Debug Logging & Troubleshooting
+
+### Enabling Debug Logs
 
 The plugin emits detailed diagnostic logs during the OIDC pipeline. To enable debug output, add this to your `configuration.py`:
 
@@ -278,31 +304,19 @@ LOGGING = {
 
 This logs every step of the pipeline — response keys, claim extraction attempts, group mapping results, and superuser flag changes. Output goes to the NetBox systemd journal (`journalctl -u netbox`).
 
-## Troubleshooting
+### Common Issues
 
-### 1. Groups not syncing
+**Groups not syncing** — Check that `netbox_oidc_group_sync.pipeline.sync_oidc_groups` is in your `SOCIAL_AUTH_PIPELINE` **after** `associate_user`. Without the pipeline function, group sync never executes.
 
-Check that `netbox_oidc_group_sync.pipeline.sync_oidc_groups` is in your `SOCIAL_AUTH_PIPELINE` **after** `associate_user`. Without the pipeline function, group sync never executes.
+**Claim not found** — Verify `group_claim_name` matches your IdP's token claim exactly. Enable debug logging (above) to see what claims are arriving.
 
-### 2. Claim not found
+**Okta groups empty** — Ensure the Groups claim is configured in the OIDC app's **Sign On** settings and that the OIDC scope includes `groups`.
 
-Verify `group_claim_name` matches your IdP's token claim exactly. Enable [debug logging](#debug-logging) to see what claims are arriving.
+**Azure AD shows Object IDs instead of names** — Configure the optional claim to emit group display names, or map the Object IDs directly in the plugin's mapping table.
 
-### 3. Okta groups empty
+**User loses all groups on login** — This is expected behavior in **Replace** mode if no OIDC groups are mapped. Either switch to **Additive** mode or create mappings for all relevant OIDC groups first.
 
-Ensure the Groups claim is configured in the OIDC app's **Sign On** settings and that the OIDC scope includes `groups`.
-
-### 4. Azure AD shows Object IDs instead of names
-
-Configure the optional claim to emit group display names, or map the Object IDs directly in the plugin's mapping table.
-
-### 5. User loses all groups on login
-
-This is expected behavior in **Replace** mode if no OIDC groups are mapped. Either switch to **Additive** mode or create mappings for all relevant OIDC groups first.
-
-### 6. Auto-created groups have no permissions
-
-Auto-create only creates the NetBox group object. You must assign permissions separately in **NetBox Admin → Groups**.
+**Auto-created groups have no permissions** — Auto-create only creates the NetBox group object. You must assign permissions separately in **NetBox Admin → Groups**.
 
 ## Development
 
