@@ -1,0 +1,2 @@
+recursive-include netbox_oidc_group_sync/templates *.html
+recursive-include netbox_oidc_group_sync/static *

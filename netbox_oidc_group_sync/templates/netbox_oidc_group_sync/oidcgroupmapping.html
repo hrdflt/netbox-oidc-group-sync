@@ -1,0 +1,28 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block title %}{{ object.oidc_group_name }}{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">OIDC Group Mapping</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">OIDC Group Name</th>
+                    <td>{{ object.oidc_group_name }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">NetBox Group</th>
+                    <td>{{ object.group.name }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">Description</th>
+                    <td>{{ object.description|placeholder }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

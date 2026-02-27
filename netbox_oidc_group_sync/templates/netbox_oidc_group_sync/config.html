@@ -1,0 +1,73 @@
+{% extends 'base/layout.html' %}
+{% load form_helpers %}
+
+{% block title %}OIDC Group Sync Configuration{% endblock %}
+
+{% block tabs %}
+<ul class="nav nav-tabs">
+    <li class="nav-item">
+        <a class="nav-link active" href="{% url 'plugins:netbox_oidc_group_sync:config' %}">Configuration</a>
+    </li>
+</ul>
+{% endblock tabs %}
+
+{% block content %}
+<div class="row">
+    <div class="col col-md-8">
+        <div class="card">
+            <h5 class="card-header">Sync Settings</h5>
+            <div class="card-body">
+                <form method="post" action="{% url 'plugins:netbox_oidc_group_sync:config' %}">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label for="id_group_claim_name" class="form-label">Group Claim Name</label>
+                        {{ form.group_claim_name }}
+                        <div class="form-text">The OIDC token claim containing group names (default: <code>groups</code>). Some IdPs use <code>roles</code>, <code>memberOf</code>, etc.</div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            {{ form.auto_create_groups }}
+                            <label for="id_auto_create_groups" class="form-check-label">Auto-create Groups</label>
+                        </div>
+                        <div class="form-text">If enabled, Django groups will be automatically created for OIDC groups that don't have an explicit mapping.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="id_sync_mode" class="form-label">Sync Mode</label>
+                        {{ form.sync_mode }}
+                        <div class="form-text"><strong>Replace</strong>: Replace all user groups on each login. <strong>Additive</strong>: Only add groups, never remove.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="id_superuser_groups" class="form-label">Superuser Groups</label>
+                        {{ form.superuser_groups }}
+                        <div class="form-text">Comma-separated list of OIDC group names that grant <code>is_superuser</code> status.</div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Save Configuration</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col col-md-4">
+        <div class="card">
+            <h5 class="card-header">Current Settings</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">Group Claim</th>
+                    <td><code>{{ object.group_claim_name }}</code></td>
+                </tr>
+                <tr>
+                    <th scope="row">Auto-create</th>
+                    <td>{% if object.auto_create_groups %}<span class="badge text-bg-success">Enabled</span>{% else %}<span class="badge text-bg-secondary">Disabled</span>{% endif %}</td>
+                </tr>
+                <tr>
+                    <th scope="row">Sync Mode</th>
+                    <td><span class="badge text-bg-info">{{ object.get_sync_mode_display }}</span></td>
+                </tr>
+                <tr>
+                    <th scope="row">Superuser Groups</th>
+                    <td>{{ object.superuser_groups|default:"None configured" }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
