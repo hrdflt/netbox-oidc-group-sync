@@ -251,6 +251,20 @@ In **Configuration**, add OIDC group names to the **Superuser Groups** field (co
 
 Leave this field empty to skip superuser management entirely (the plugin won't touch that flag).
 
+### Missing or Empty Groups Claim
+
+If the groups claim is missing from a login, is empty, or is not a string or list of strings, the user is treated as a member of **no** OIDC groups:
+
+- In **Replace** mode, all of the user's NetBox groups are removed.
+- In **Additive** mode, existing groups are kept (additive never removes groups).
+- If **Superuser Groups** is set, `is_superuser` is removed in either mode.
+
+This is deliberate: a user who has been removed from every group at the IdP must not keep their NetBox access. It also means that an IdP misconfiguration which drops the claim will strip groups and superuser status from users as they log in, so keep a local superuser account (`python manage.py createsuperuser`) that does not sign in through OIDC for recovery. Each occurrence is logged as a warning.
+
+Groups are only ever read from the current login. The claim must be part of the user data the login backend returns for that login; for the generic OIDC and Okta backends that is the IdP's userinfo response.
+
+Group membership and the superuser flag are only updated when a user signs in through OIDC. Existing sessions and API tokens are not affected until the next OIDC login, and a user who can no longer sign in at the IdP is never re-synced, so deactivate such accounts in NetBox.
+
 ### REST API
 
 The plugin provides a REST API under `/api/plugins/oidc-group-sync/`:
@@ -316,7 +330,7 @@ This logs every step of the pipeline — response keys, claim extraction attempt
 
 **Azure AD shows Object IDs instead of names** — Configure the optional claim to emit group display names, or map the Object IDs directly in the plugin's mapping table.
 
-**User loses all groups on login** — This is expected behavior in **Replace** mode if no OIDC groups are mapped. Either switch to **Additive** mode or create mappings for all relevant OIDC groups first.
+**User loses all groups on login** — This is expected behavior in **Replace** mode if no OIDC groups are mapped, or if the groups claim is missing from the login (see [Missing or Empty Groups Claim](#missing-or-empty-groups-claim)). Either switch to **Additive** mode or create mappings for all relevant OIDC groups first.
 
 **Auto-created groups have no permissions** — Auto-create only creates the NetBox group object. You must assign permissions separately in **NetBox Admin → Groups**.
 
