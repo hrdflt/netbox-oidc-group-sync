@@ -9,7 +9,7 @@ class NetBoxOIDCGroupSyncConfig(PluginConfig):
     author = 'Hardfault'
     author_email = ''
     base_url = 'oidc-group-sync'
-    min_version = '4.0.0'
+    min_version = '4.5.3'
     project_url = 'https://github.com/hrdflt/netbox-oidc-group-sync'
     default_settings = {
         'group_claim_name': 'groups',

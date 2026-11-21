@@ -3,7 +3,7 @@
 This guide covers development workflow, iteration, and troubleshooting for contributors.
 
 > **Tested on:** NetBox 4.5.3, Python 3.12, PostgreSQL 16  
-> **Compatibility:** NetBox 4.0+ (only 4.5.3 verified)
+> **Compatibility:** NetBox 4.5.3+ (older releases are not supported)
 
 ## Table of Contents
 

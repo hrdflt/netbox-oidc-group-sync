@@ -1,7 +1,7 @@
 # NetBox OIDC Group Sync
 
-![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)
-![NetBox 4.0+](https://img.shields.io/badge/netbox-4.0%2B-green.svg)
+![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)
+![NetBox 4.5.3+](https://img.shields.io/badge/netbox-4.5.3%2B-green.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-orange.svg)
 
 A NetBox plugin that synchronizes OIDC/OAuth2 identity provider groups to NetBox groups via a configurable mapping table. Works with **Okta**, **Azure AD/Entra ID**, **Google Workspace**, **Keycloak**, **Auth0**, and any standards-compliant OIDC provider.
@@ -46,8 +46,8 @@ Each mapping entry can be viewed in read-only detail:
 
 | Requirement | Version |
 |---|---|
-| NetBox | 4.0+ (tested on **4.5.3** only — likely works on older 4.x but untested) |
-| Python | 3.10+ |
+| NetBox | 4.5.3+ |
+| Python | 3.12+ |
 | `python-social-auth` | Included with NetBox |
 
 ## Installation
