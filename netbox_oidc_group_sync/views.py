@@ -1,5 +1,5 @@
 from django.contrib import messages
-from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.mixins import UserPassesTestMixin
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views import View
@@ -59,8 +59,16 @@ class OIDCGroupMappingBulkDeleteView(generic.BulkDeleteView):
 
 # --- Config view (singleton pattern) ---
 
-class OIDCGroupSyncConfigView(LoginRequiredMixin, View):
-    """Display and edit the singleton sync configuration."""
+class OIDCGroupSyncConfigView(UserPassesTestMixin, View):
+    """
+    Display and edit the singleton sync configuration.
+
+    Restricted to superusers: the superuser_groups setting controls who is
+    granted is_superuser on login, so anyone able to edit it can escalate.
+    """
+
+    def test_func(self):
+        return self.request.user.is_superuser
 
     def get(self, request):
         config = OIDCGroupSyncConfig.get_solo()

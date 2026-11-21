@@ -135,7 +135,7 @@ sudo systemctl restart netbox netbox-rq
 
 ### Plugin Settings (GUI)
 
-After installation, navigate to **Plugins → OIDC Group Sync → Configuration** in the NetBox GUI to set:
+After installation, navigate to **Plugins → OIDC Group Sync → Configuration** in the NetBox GUI to set the options below. The Configuration page is only visible to, and usable by, superusers.
 
 - **Sync Mode** — Replace or Additive (see [Sync Mode Behavior](#sync-mode-behavior))
 - **Group Claim Name** — The OIDC token claim containing group names (default: `groups`)
@@ -259,7 +259,9 @@ The plugin provides a REST API under `/api/plugins/oidc-group-sync/`:
 |---|---|---|
 | `/api/plugins/oidc-group-sync/mappings/` | GET, POST | List/create mappings |
 | `/api/plugins/oidc-group-sync/mappings/{id}/` | GET, PUT, PATCH, DELETE | Retrieve/update/delete a mapping |
-| `/api/plugins/oidc-group-sync/config/` | GET, PUT, PATCH | View/update singleton config |
+| `/api/plugins/oidc-group-sync/config/` | GET, PUT, PATCH | View/update singleton config (superuser only) |
+
+> **Note:** The configuration page and `/config/` API endpoint are restricted to superusers, since the **Superuser Groups** setting controls who is granted `is_superuser` on login. Writes via the API also require a write-enabled token.
 
 ```bash
 # List all mappings
