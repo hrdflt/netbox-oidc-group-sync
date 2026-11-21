@@ -14,7 +14,7 @@ A NetBox plugin that synchronizes OIDC/OAuth2 identity provider groups to NetBox
 - **Superuser flag assignment** based on OIDC group membership
 - **Bulk import/export** of mappings
 - **REST API** for programmatic management
-- **Full change logging** (NetBox's built-in audit trail)
+- **Change logging** for group mappings (NetBox's built-in audit trail)
 
 ## Screenshots
 
@@ -110,6 +110,8 @@ The `associate_by_email` pipeline step (included above) controls what happens wh
 | **No** | A new NetBox user is created with a hashed username (e.g., `jdoe_abc123`). The pre-existing local account is left untouched but the user now has two separate identities in NetBox. |
 
 If you are migrating from local authentication or an older SAML integration where usernames are set to the users' email addresses, you almost certainly want `associate_by_email` enabled so that existing users are seamlessly adopted rather than duplicated.
+
+> **⚠️** With `associate_by_email`, anyone who can sign in at the IdP with a given email address takes over the NetBox account that has that address. Only use it if your IdP verifies email addresses and does not let users change their own. Give local-only accounts, such as a recovery superuser, an email address that no IdP user can have (or none at all).
 
 ### 3. Run database migrations
 
@@ -244,6 +246,12 @@ oidc_group_name,group,description
 "DNS Operators",dns-operators,"DNS management team"
 "NOC Staff",noc-readonly,"Read-only NOC access"
 ```
+
+### Permissions
+
+- **Configuration** (page and API) is restricted to superusers.
+- **Group mappings** use NetBox's normal object permissions on *OIDC Group Mapping*. A user who can add or change mappings can map any OIDC group, including one of their own, to any NetBox group. Treat those permissions as the ability to grant any NetBox group, and give them only to administrators.
+- Changes to mappings appear in NetBox's change log. Changes to the Configuration page do not.
 
 ### Superuser Flag Mapping
 
