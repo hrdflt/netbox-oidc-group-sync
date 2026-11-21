@@ -3,11 +3,12 @@
 This guide covers development workflow, iteration, and troubleshooting for contributors.
 
 > **Tested on:** NetBox 4.5.3, Python 3.12, PostgreSQL 16  
-> **Compatibility:** NetBox 4.0+ (only 4.5.3 verified)
+> **Compatibility:** NetBox 4.5.3+ (older releases are not supported)
 
 ## Table of Contents
 
 - [Development Setup](#development-setup)
+- [Running Tests](#running-tests)
 - [Edit → Deploy → Test Cycle](#edit--deploy--test-cycle)
 - [Pip Caching Gotcha](#pip-caching-gotcha)
 - [Database Management](#database-management)
@@ -53,6 +54,46 @@ Running migrations:
 
 ---
 
+## Running Tests
+
+Tests run inside Docker against a real NetBox, PostgreSQL and Redis. From the repo root:
+
+```bash
+docker compose -f docker/compose.test.yml run --rm -T --build netbox
+```
+
+Tear down afterwards (the database lives on tmpfs, so nothing is kept between runs):
+
+```bash
+docker compose -f docker/compose.test.yml down -v
+```
+
+The plugin package is mounted from your working tree, so after the first build you can drop `--build` and just re-run. Rebuild when `pyproject.toml` changes.
+
+To test against another supported NetBox release (4.5.3 or later), set `NETBOX_VERSION` to its tag without the `v`:
+
+```bash
+NETBOX_VERSION=4.5.10 docker compose -f docker/compose.test.yml run --rm -T --build netbox
+```
+
+To run a single module or pass other `manage.py test` options:
+
+```bash
+docker compose -f docker/compose.test.yml run --rm -T netbox \
+    python manage.py test netbox_oidc_group_sync.tests.test_api --parallel 1 --noinput
+```
+
+Podman works too (`podman compose ...`). Keep the `-T` flag.
+
+The compose project has a fixed name, so two runs at the same time (for example from two checkouts, or against two NetBox versions) share containers and break each other. Give each concurrent run its own project name with `-p`:
+
+```bash
+NETBOX_VERSION=4.5.10 docker compose -p oidc-test-4510 -f docker/compose.test.yml run --rm -T --build netbox
+docker compose -p oidc-test-4510 -f docker/compose.test.yml down -v
+```
+
+---
+
 ## Edit → Deploy → Test Cycle
 
 After making code changes:
@@ -77,7 +118,7 @@ sudo systemctl restart netbox netbox-rq
 
 ## Pip Caching Gotcha
 
-⚠️ **Critical:** Pip caches built wheels by package name + version. If you reinstall the same version (`0.1.0`) after changing code, **pip may serve the cached wheel with old code**.
+⚠️ **Critical:** Pip caches built wheels by package name + version. If you reinstall the same version after changing code, **pip may serve the cached wheel with old code**.
 
 **Always use `--no-cache-dir --force-reinstall`** during development:
 
@@ -129,7 +170,6 @@ If you need to start fresh (e.g., migration schema changed during development):
 cd /opt/netbox/netbox && python manage.py dbshell <<'EOF'
 DROP TABLE IF EXISTS netbox_oidc_group_sync_oidcgroupmapping_tags CASCADE;
 DROP TABLE IF EXISTS netbox_oidc_group_sync_oidcgroupmapping CASCADE;
-DROP TABLE IF EXISTS netbox_oidc_group_sync_oidcgroupsyncconfig_tags CASCADE;
 DROP TABLE IF EXISTS netbox_oidc_group_sync_oidcgroupsyncconfig CASCADE;
 DELETE FROM django_migrations WHERE app = 'netbox_oidc_group_sync';
 EOF
@@ -138,10 +178,9 @@ EOF
 Expected output:
 
 ```
+DROP TABLE       (or NOTICE: table does not exist, skipping)
 DROP TABLE
 DROP TABLE
-DROP TABLE       (or NOTICE: table does not exist, skipping)
-DROP TABLE       (or NOTICE: table does not exist, skipping)
 DELETE 1
 ```
 
@@ -246,7 +285,6 @@ To completely remove the plugin:
 cd /opt/netbox/netbox && python manage.py dbshell <<'EOF'
 DROP TABLE IF EXISTS netbox_oidc_group_sync_oidcgroupmapping_tags CASCADE;
 DROP TABLE IF EXISTS netbox_oidc_group_sync_oidcgroupmapping CASCADE;
-DROP TABLE IF EXISTS netbox_oidc_group_sync_oidcgroupsyncconfig_tags CASCADE;
 DROP TABLE IF EXISTS netbox_oidc_group_sync_oidcgroupsyncconfig CASCADE;
 DELETE FROM django_migrations WHERE app = 'netbox_oidc_group_sync';
 EOF
@@ -280,4 +318,4 @@ Fix: verify installed code, reinstall with `--no-cache-dir --force-reinstall`, t
 
 ### "'auth-api' is not a registered namespace"
 
-This happens when using `DynamicModelChoiceField` with `django.contrib.auth.models.Group`. NetBox's `DynamicModelChoiceField` requires models registered in NetBox's API router. Django's `auth.Group` is not registered. Use `forms.ModelChoiceField` instead.
+This happens when a form field points at `django.contrib.auth.models.Group`, which is not registered in NetBox's API router. Use NetBox's own group model, `users.models.Group`, as the plugin's forms do.

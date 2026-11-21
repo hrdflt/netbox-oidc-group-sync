@@ -15,5 +15,6 @@ menu_items = (
     PluginMenuItem(
         link='plugins:netbox_oidc_group_sync:config',
         link_text='Configuration',
+        staff_only=True,
     ),
 )

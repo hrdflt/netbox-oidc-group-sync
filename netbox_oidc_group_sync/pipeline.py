@@ -5,6 +5,22 @@ from users.models import Group
 logger = logging.getLogger('netbox_oidc_group_sync.pipeline')
 
 
+def _is_valid_group_name(value):
+    """
+    Return True if value is a non-empty string the database can store.
+
+    PostgreSQL rejects NUL characters and text that is not valid UTF-8 (such
+    as a lone surrogate), and either would abort the login.
+    """
+    if not isinstance(value, str) or not value or '\x00' in value:
+        return False
+    try:
+        value.encode('utf-8')
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def sync_oidc_groups(backend, user, response, *args, **kwargs):
     """
     Social-auth pipeline function to sync OIDC groups to Django groups.
@@ -21,11 +37,6 @@ def sync_oidc_groups(backend, user, response, *args, **kwargs):
     )
     logger.debug(
         "Pipeline kwargs keys: %s", list(kwargs.keys()),
-    )
-    logger.debug(
-        "Pipeline 'social' in kwargs: %s (type=%s)",
-        'social' in kwargs,
-        type(kwargs.get('social')).__name__ if 'social' in kwargs else 'N/A',
     )
 
     # --- Diagnostic logging: response structure ---
@@ -67,83 +78,64 @@ def sync_oidc_groups(backend, user, response, *args, **kwargs):
         claim_name, config.auto_create_groups, config.sync_mode,
     )
 
-    # Extract groups from OIDC token claims
-    # Try response directly, then try extra_data, then try kwargs.get('social')
-    oidc_groups = response.get(claim_name, [])
-    if oidc_groups:
-        logger.debug(
-            "Found groups in response[%r]: %r",
-            claim_name, oidc_groups,
-        )
-    else:
-        logger.warning(
-            "Claim %r NOT found in response (or empty). "
-            "Available response keys: %s",
-            claim_name, list(response.keys()) if isinstance(response, dict) else 'N/A',
-        )
+    # Extract groups from the claims of this login only. Nothing is read from
+    # social.extra_data: at this point in the pipeline it still holds the
+    # previous login's values, so it could hand back groups the user has since
+    # been removed from.
+    raw_groups = response.get(claim_name) if isinstance(response, dict) else None
 
-    if not oidc_groups and hasattr(user, 'social_auth'):
-        logger.debug(
-            "Falling back to social_auth extra_data lookup. "
-            "user.social_auth.exists()=%s",
-            user.social_auth.exists(),
-        )
-        # Some backends put claims in extra_data
-        social = kwargs.get('social') or (
-            user.social_auth.first() if user.social_auth.exists() else None
-        )
-        if social and social.extra_data:
+    # Some IdPs only put the claim in the ID token, which OIDC backends keep
+    # separately from the userinfo response. Fall back to the ID token the
+    # backend validated for this login.
+    id_token = getattr(backend, 'id_token', None)
+    if not isinstance(id_token, dict):
+        id_token = None
+    if raw_groups is None and id_token is not None:
+        raw_groups = id_token.get(claim_name)
+        if raw_groups is not None:
             logger.debug(
-                "social.extra_data keys: %s",
-                list(social.extra_data.keys()) if isinstance(social.extra_data, dict) else type(social.extra_data).__name__,
+                "Claim %r not in response; using the ID token", claim_name,
             )
-            oidc_groups = social.extra_data.get(claim_name, [])
-            if oidc_groups:
-                logger.debug(
-                    "Found groups in social.extra_data[%r]: %r",
-                    claim_name, oidc_groups,
-                )
-            else:
-                logger.warning(
-                    "Claim %r NOT found in social.extra_data either. "
-                    "Available extra_data keys: %s",
-                    claim_name,
-                    list(social.extra_data.keys()) if isinstance(social.extra_data, dict) else 'N/A',
-                )
-        elif social:
-            logger.warning(
-                "social object exists but extra_data is empty/None: %r",
-                social.extra_data,
-            )
-        else:
-            logger.warning(
-                "No social auth object available "
-                "(kwargs['social']=%r, user.social_auth query returned None)",
-                kwargs.get('social'),
-            )
-    elif not oidc_groups:
-        logger.warning(
-            "user %s has no social_auth attribute — cannot fall back to extra_data",
-            getattr(user, 'username', repr(user)),
-        )
 
     # Handle string vs list (some providers return a single string)
-    if isinstance(oidc_groups, str):
+    if isinstance(raw_groups, str):
         logger.debug(
-            "oidc_groups was a string %r, converting to list", oidc_groups,
+            "oidc_groups was a string %r, converting to list", raw_groups,
         )
-        oidc_groups = [oidc_groups]
+        raw_groups = [raw_groups]
+
+    if isinstance(raw_groups, (list, tuple, set)):
+        oidc_groups = [g for g in raw_groups if _is_valid_group_name(g)]
+        if len(oidc_groups) != len(raw_groups):
+            logger.warning(
+                "Ignoring empty, non-string or invalid entries in claim %r for user %s",
+                claim_name, user.username,
+            )
+    else:
+        if raw_groups is not None:
+            logger.warning(
+                "Claim %r for user %s has unsupported type %s; treating it as empty",
+                claim_name, user.username, type(raw_groups).__name__,
+            )
+        oidc_groups = []
 
     if not oidc_groups:
+        # A missing or empty claim means the user is in no groups. It is
+        # deliberately not skipped: returning early here would let a user who
+        # was removed from every group at the IdP keep their NetBox groups and
+        # superuser status.
         logger.warning(
-            "No OIDC groups found in claim '%s' for user %s. "
-            "All extraction attempts exhausted. "
-            "Verify: (1) Okta app has a '%s' claim configured, "
-            "(2) 'groups' scope is in SOCIAL_AUTH_OIDC_SCOPE, "
-            "(3) group_claim_name matches the Okta claim name.",
-            claim_name, user.username, claim_name,
+            "No OIDC groups found in claim '%s' for user %s; treating the user "
+            "as a member of no groups. "
+            "Available response keys: %s. ID token claims: %s. "
+            "If this is unexpected, verify: (1) the IdP app has a '%s' claim configured, "
+            "(2) the 'groups' scope is requested, "
+            "(3) group_claim_name matches the IdP claim name.",
+            claim_name, user.username,
+            list(response.keys()) if isinstance(response, dict) else 'N/A',
+            list(id_token.keys()) if id_token is not None else 'N/A',
+            claim_name,
         )
-        return
 
     logger.info(f"User {user.username} has OIDC groups: {oidc_groups}")
 
@@ -160,11 +152,21 @@ def sync_oidc_groups(backend, user, response, *args, **kwargs):
             f"→ Django group '{mapping.group.name}'"
         )
 
-    # Auto-create groups if enabled (for OIDC groups without explicit mappings)
+    # Auto-create groups if enabled (for OIDC groups without explicit mappings).
+    # Groups are matched by name, so an existing NetBox group with the same
+    # name as an unmapped OIDC group is assigned as well.
     if config.auto_create_groups:
         mapped_oidc_names = set(m.oidc_group_name for m in mappings)
         unmapped_oidc_names = set(oidc_groups) - mapped_oidc_names
-        for oidc_name in unmapped_oidc_names:
+        name_max_length = Group._meta.get_field('name').max_length
+        for oidc_name in sorted(unmapped_oidc_names):
+            if len(oidc_name) > name_max_length:
+                logger.warning(
+                    "Not auto-creating group for OIDC group %r: name exceeds "
+                    "%d characters. Create an explicit mapping instead.",
+                    oidc_name, name_max_length,
+                )
+                continue
             group, created = Group.objects.get_or_create(name=oidc_name)
             if created:
                 logger.info(

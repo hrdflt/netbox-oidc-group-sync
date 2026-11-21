@@ -1,0 +1,46 @@
+# Test environment for the plugin. From the repo root:
+#
+#   docker compose -f docker/compose.test.yml run --rm -T --build netbox
+#   docker compose -f docker/compose.test.yml down -v
+#
+# Set NETBOX_VERSION to test against a different NetBox release.
+name: netbox-oidc-group-sync-test
+
+services:
+  netbox:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.test
+      args:
+        NETBOX_VERSION: ${NETBOX_VERSION:-4.5.3}
+    image: netbox-oidc-group-sync-test:${NETBOX_VERSION:-4.5.3}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # Use the working tree, so code changes don't need a rebuild
+      - ../netbox_oidc_group_sync:/plugin/netbox_oidc_group_sync:ro
+
+  postgres:
+    image: docker.io/library/postgres:16-alpine
+    environment:
+      POSTGRES_USER: netbox
+      POSTGRES_PASSWORD: netbox
+      POSTGRES_DB: netbox
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netbox"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  redis:
+    image: docker.io/library/redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 15

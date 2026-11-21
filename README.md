@@ -1,7 +1,7 @@
 # NetBox OIDC Group Sync
 
-![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)
-![NetBox 4.0+](https://img.shields.io/badge/netbox-4.0%2B-green.svg)
+![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)
+![NetBox 4.5.3+](https://img.shields.io/badge/netbox-4.5.3%2B-green.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-orange.svg)
 
 A NetBox plugin that synchronizes OIDC/OAuth2 identity provider groups to NetBox groups via a configurable mapping table. Works with **Okta**, **Azure AD/Entra ID**, **Google Workspace**, **Keycloak**, **Auth0**, and any standards-compliant OIDC provider.
@@ -14,7 +14,7 @@ A NetBox plugin that synchronizes OIDC/OAuth2 identity provider groups to NetBox
 - **Superuser flag assignment** based on OIDC group membership
 - **Bulk import/export** of mappings
 - **REST API** for programmatic management
-- **Full change logging** (NetBox's built-in audit trail)
+- **Change logging** for group mappings (NetBox's built-in audit trail)
 
 ## Screenshots
 
@@ -46,8 +46,8 @@ Each mapping entry can be viewed in read-only detail:
 
 | Requirement | Version |
 |---|---|
-| NetBox | 4.0+ (tested on **4.5.3** only — likely works on older 4.x but untested) |
-| Python | 3.10+ |
+| NetBox | 4.5.3+ |
+| Python | 3.12+ |
 | `python-social-auth` | Included with NetBox |
 
 ## Installation
@@ -111,6 +111,8 @@ The `associate_by_email` pipeline step (included above) controls what happens wh
 
 If you are migrating from local authentication or an older SAML integration where usernames are set to the users' email addresses, you almost certainly want `associate_by_email` enabled so that existing users are seamlessly adopted rather than duplicated.
 
+> **⚠️** With `associate_by_email`, anyone who can sign in at the IdP with a given email address takes over the NetBox account that has that address. Only use it if your IdP verifies email addresses and does not let users change their own. Give local-only accounts, such as a recovery superuser, an email address that no IdP user can have (or none at all).
+
 ### 3. Run database migrations
 
 ```bash
@@ -135,14 +137,59 @@ sudo systemctl restart netbox netbox-rq
 
 ### Plugin Settings (GUI)
 
-After installation, navigate to **Plugins → OIDC Group Sync → Configuration** in the NetBox GUI to set:
+After installation, navigate to **Plugins → OIDC Group Sync → Configuration** in the NetBox GUI to set the options below. The Configuration page is only visible to, and usable by, superusers.
 
 - **Sync Mode** — Replace or Additive (see [Sync Mode Behavior](#sync-mode-behavior))
 - **Group Claim Name** — The OIDC token claim containing group names (default: `groups`)
 - **Superuser Groups** — Comma-separated OIDC group names that grant superuser (see [Superuser Flag Mapping](#superuser-flag-mapping))
-- **Auto-create Groups** — Whether to create NetBox groups automatically from OIDC claims
+- **Auto-create Groups** — Whether to create NetBox groups automatically from OIDC claims (see [Auto-created Groups](#auto-created-groups))
 
 These settings are stored in the database and take effect immediately — no restart required after changing them.
+
+#### Auto-created Groups
+
+When **Auto-create Groups** is enabled, each OIDC group in the user's claim that has no explicit mapping is matched to a NetBox group **by name**. If no group with that name exists, it is created. Either way, the user is added to it.
+
+> **⚠️ A name match grants an existing group.** If the IdP sends a group called `Admins` and NetBox already has an `Admins` group, the user is added to it, with whatever permissions that group carries. Do not enable auto-create if users can create or rename their own groups at your IdP (self-service groups, for example). Use explicit group mappings instead.
+
+Auto-created groups are never deleted by the plugin. When a user is no longer in an OIDC group, they are removed from the NetBox group at their next login (in **Replace** mode), but the group itself stays until you delete it.
+
+OIDC group names longer than 150 characters (NetBox's group name limit) are skipped with a warning; add an explicit mapping for those.
+
+## Upgrading
+
+```bash
+cd /opt/netbox
+source venv/bin/activate
+pip install --no-cache-dir --force-reinstall /path/to/netbox-oidc-group-sync/
+cd /opt/netbox/netbox
+python manage.py migrate netbox_oidc_group_sync
+sudo systemctl restart netbox netbox-rq
+```
+
+The installed version is shown under **Admin → Plugins** in NetBox.
+
+### Upgrading to 1.1.0
+
+The earlier releases (tagged `v0.1.0` and `v1.0.0`, both of which report their version as `0.1.0`) let **any logged-in user** change the plugin configuration, including **Superuser Groups**, and so make themselves a superuser at their next login.
+
+Upgrading closes this, but it does not undo changes that were already made. After upgrading:
+
+1. Review the **Configuration** page: **Superuser Groups**, **Auto-create Groups** and **Group Claim Name** should be what you set.
+2. Review your group mappings.
+3. Review which users are superusers (**Admin → Users**) and remove the flag from any you do not expect. Check for API tokens, users and permissions created by such accounts.
+
+Configuration changes were not recorded in NetBox's change log, so there is no history to check them against.
+
+Other changes in 1.1.0:
+
+- **NetBox 4.5.3 or later and Python 3.12 or later are required.**
+- **The Configuration page and API are restricted to superusers.** API changes also need a write-enabled token.
+- **A login with no groups claim now removes access.** Previously nothing was changed. In **Replace** mode the user's groups are removed, and if **Superuser Groups** is set the superuser flag is removed. Check that your IdP sends the claim before upgrading, and keep a local superuser account for recovery. See [Missing or Empty Groups Claim](#missing-or-empty-groups-claim).
+- **Groups are read only from the current login.** They are no longer taken from data saved at a previous login.
+- **Groups are also read from the ID token** when the IdP's userinfo response does not include the claim. If your IdP only put groups in the ID token, group sync did not work before and starts working now: in **Replace** mode, groups assigned by hand in NetBox are replaced by the mapped ones at the user's next login.
+- **Group names that cannot be used are skipped with a warning** instead of failing the login: with **Auto-create Groups**, names longer than 150 characters; in all cases, names that are not valid text.
+- There are no database changes.
 
 ## IdP Setup Guides
 
@@ -235,6 +282,12 @@ oidc_group_name,group,description
 "NOC Staff",noc-readonly,"Read-only NOC access"
 ```
 
+### Permissions
+
+- **Configuration** (page and API) is restricted to superusers.
+- **Group mappings** use NetBox's normal object permissions on *OIDC Group Mapping*. A user who can add or change mappings can map any OIDC group, including one of their own, to any NetBox group. Treat those permissions as the ability to grant any NetBox group, and give them only to administrators.
+- Changes to mappings appear in NetBox's change log. Changes to the Configuration page do not.
+
 ### Superuser Flag Mapping
 
 > **This is separate from group membership.** Group Mappings control which NetBox groups a user belongs to. Superuser mapping controls the built-in `is_superuser` permission flag.
@@ -251,6 +304,22 @@ In **Configuration**, add OIDC group names to the **Superuser Groups** field (co
 
 Leave this field empty to skip superuser management entirely (the plugin won't touch that flag).
 
+### Missing or Empty Groups Claim
+
+If the groups claim is missing from a login, is empty, or is not a string or list of strings, the user is treated as a member of **no** OIDC groups:
+
+- In **Replace** mode, all of the user's NetBox groups are removed.
+- In **Additive** mode, existing groups are kept (additive never removes groups).
+- If **Superuser Groups** is set, `is_superuser` is removed in either mode.
+
+This is deliberate: a user who has been removed from every group at the IdP must not keep their NetBox access. It also means that an IdP misconfiguration which drops the claim will strip groups and superuser status from users as they log in, so keep a local superuser account (`python manage.py createsuperuser`) that does not sign in through OIDC for recovery. Each occurrence is logged as a warning.
+
+Groups are only ever read from the current login. The plugin looks for the claim in the user data the login backend returns (for OIDC backends, the IdP's userinfo response). If it is not there, it uses the ID token that the backend validated for that login. If both carry the claim, the userinfo response is used.
+
+The ID token is only available in the request that completes the login. If you add a pipeline step that pauses the login and resumes it in a later request (a *partial* step), place it after `sync_oidc_groups`; otherwise a claim that is only in the ID token is not seen when the login resumes.
+
+Group membership and the superuser flag are only updated when a user signs in through OIDC. Existing sessions and API tokens are not affected until the next OIDC login, and a user who can no longer sign in at the IdP is never re-synced, so deactivate such accounts in NetBox.
+
 ### REST API
 
 The plugin provides a REST API under `/api/plugins/oidc-group-sync/`:
@@ -259,7 +328,9 @@ The plugin provides a REST API under `/api/plugins/oidc-group-sync/`:
 |---|---|---|
 | `/api/plugins/oidc-group-sync/mappings/` | GET, POST | List/create mappings |
 | `/api/plugins/oidc-group-sync/mappings/{id}/` | GET, PUT, PATCH, DELETE | Retrieve/update/delete a mapping |
-| `/api/plugins/oidc-group-sync/config/` | GET, PUT, PATCH | View/update singleton config |
+| `/api/plugins/oidc-group-sync/config/` | GET, PUT, PATCH | View/update singleton config (superuser only) |
+
+> **Note:** The configuration page and `/config/` API endpoint are restricted to superusers, since the **Superuser Groups** setting controls who is granted `is_superuser` on login. Writes via the API also require a write-enabled token.
 
 ```bash
 # List all mappings
@@ -308,13 +379,13 @@ This logs every step of the pipeline — response keys, claim extraction attempt
 
 **Groups not syncing** — Check that `netbox_oidc_group_sync.pipeline.sync_oidc_groups` is in your `SOCIAL_AUTH_PIPELINE` **after** `associate_user`. Without the pipeline function, group sync never executes.
 
-**Claim not found** — Verify `group_claim_name` matches your IdP's token claim exactly. Enable debug logging (above) to see what claims are arriving.
+**Claim not found** — Verify `group_claim_name` matches your IdP's token claim exactly. The warning logged when no groups are found lists the keys in the login response and the claims in the ID token, so you can see what the IdP actually sent. Debug logging (above) shows the response values as well.
 
 **Okta groups empty** — Ensure the Groups claim is configured in the OIDC app's **Sign On** settings and that the OIDC scope includes `groups`.
 
 **Azure AD shows Object IDs instead of names** — Configure the optional claim to emit group display names, or map the Object IDs directly in the plugin's mapping table.
 
-**User loses all groups on login** — This is expected behavior in **Replace** mode if no OIDC groups are mapped. Either switch to **Additive** mode or create mappings for all relevant OIDC groups first.
+**User loses all groups on login** — This is expected behavior in **Replace** mode if no OIDC groups are mapped, or if the groups claim is missing from the login (see [Missing or Empty Groups Claim](#missing-or-empty-groups-claim)). Either switch to **Additive** mode or create mappings for all relevant OIDC groups first.
 
 **Auto-created groups have no permissions** — Auto-create only creates the NetBox group object. You must assign permissions separately in **NetBox Admin → Groups**.
 
