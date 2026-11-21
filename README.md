@@ -261,7 +261,9 @@ If the groups claim is missing from a login, is empty, or is not a string or lis
 
 This is deliberate: a user who has been removed from every group at the IdP must not keep their NetBox access. It also means that an IdP misconfiguration which drops the claim will strip groups and superuser status from users as they log in, so keep a local superuser account (`python manage.py createsuperuser`) that does not sign in through OIDC for recovery. Each occurrence is logged as a warning.
 
-Groups are only ever read from the current login. The claim must be part of the user data the login backend returns for that login; for the generic OIDC and Okta backends that is the IdP's userinfo response.
+Groups are only ever read from the current login. The plugin looks for the claim in the user data the login backend returns (for OIDC backends, the IdP's userinfo response). If it is not there, it uses the ID token that the backend validated for that login. If both carry the claim, the userinfo response is used.
+
+The ID token is only available in the request that completes the login. If you add a pipeline step that pauses the login and resumes it in a later request (a *partial* step), place it after `sync_oidc_groups`; otherwise a claim that is only in the ID token is not seen when the login resumes.
 
 Group membership and the superuser flag are only updated when a user signs in through OIDC. Existing sessions and API tokens are not affected until the next OIDC login, and a user who can no longer sign in at the IdP is never re-synced, so deactivate such accounts in NetBox.
 
@@ -324,7 +326,7 @@ This logs every step of the pipeline — response keys, claim extraction attempt
 
 **Groups not syncing** — Check that `netbox_oidc_group_sync.pipeline.sync_oidc_groups` is in your `SOCIAL_AUTH_PIPELINE` **after** `associate_user`. Without the pipeline function, group sync never executes.
 
-**Claim not found** — Verify `group_claim_name` matches your IdP's token claim exactly. Enable debug logging (above) to see what claims are arriving.
+**Claim not found** — Verify `group_claim_name` matches your IdP's token claim exactly. The warning logged when no groups are found lists the keys in the login response and the claims in the ID token, so you can see what the IdP actually sent. Debug logging (above) shows the response values as well.
 
 **Okta groups empty** — Ensure the Groups claim is configured in the OIDC app's **Sign On** settings and that the OIDC scope includes `groups`.
 

@@ -84,6 +84,19 @@ def sync_oidc_groups(backend, user, response, *args, **kwargs):
     # been removed from.
     raw_groups = response.get(claim_name) if isinstance(response, dict) else None
 
+    # Some IdPs only put the claim in the ID token, which OIDC backends keep
+    # separately from the userinfo response. Fall back to the ID token the
+    # backend validated for this login.
+    id_token = getattr(backend, 'id_token', None)
+    if not isinstance(id_token, dict):
+        id_token = None
+    if raw_groups is None and id_token is not None:
+        raw_groups = id_token.get(claim_name)
+        if raw_groups is not None:
+            logger.debug(
+                "Claim %r not in response; using the ID token", claim_name,
+            )
+
     # Handle string vs list (some providers return a single string)
     if isinstance(raw_groups, str):
         logger.debug(
@@ -113,12 +126,14 @@ def sync_oidc_groups(backend, user, response, *args, **kwargs):
         # superuser status.
         logger.warning(
             "No OIDC groups found in claim '%s' for user %s; treating the user "
-            "as a member of no groups. Available response keys: %s. "
+            "as a member of no groups. "
+            "Available response keys: %s. ID token claims: %s. "
             "If this is unexpected, verify: (1) the IdP app has a '%s' claim configured, "
             "(2) the 'groups' scope is requested, "
             "(3) group_claim_name matches the IdP claim name.",
             claim_name, user.username,
             list(response.keys()) if isinstance(response, dict) else 'N/A',
+            list(id_token.keys()) if id_token is not None else 'N/A',
             claim_name,
         )
 
