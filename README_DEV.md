@@ -118,7 +118,7 @@ sudo systemctl restart netbox netbox-rq
 
 ## Pip Caching Gotcha
 
-⚠️ **Critical:** Pip caches built wheels by package name + version. If you reinstall the same version (`0.1.0`) after changing code, **pip may serve the cached wheel with old code**.
+⚠️ **Critical:** Pip caches built wheels by package name + version. If you reinstall the same version after changing code, **pip may serve the cached wheel with old code**.
 
 **Always use `--no-cache-dir --force-reinstall`** during development:
 

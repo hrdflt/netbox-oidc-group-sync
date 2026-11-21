@@ -156,6 +156,41 @@ Auto-created groups are never deleted by the plugin. When a user is no longer in
 
 OIDC group names longer than 150 characters (NetBox's group name limit) are skipped with a warning; add an explicit mapping for those.
 
+## Upgrading
+
+```bash
+cd /opt/netbox
+source venv/bin/activate
+pip install --no-cache-dir --force-reinstall /path/to/netbox-oidc-group-sync/
+cd /opt/netbox/netbox
+python manage.py migrate netbox_oidc_group_sync
+sudo systemctl restart netbox netbox-rq
+```
+
+The installed version is shown under **Admin → Plugins** in NetBox.
+
+### Upgrading to 1.1.0
+
+The earlier releases (tagged `v0.1.0` and `v1.0.0`, both of which report their version as `0.1.0`) let **any logged-in user** change the plugin configuration, including **Superuser Groups**, and so make themselves a superuser at their next login.
+
+Upgrading closes this, but it does not undo changes that were already made. After upgrading:
+
+1. Review the **Configuration** page: **Superuser Groups**, **Auto-create Groups** and **Group Claim Name** should be what you set.
+2. Review your group mappings.
+3. Review which users are superusers (**Admin → Users**) and remove the flag from any you do not expect. Check for API tokens, users and permissions created by such accounts.
+
+Configuration changes were not recorded in NetBox's change log, so there is no history to check them against.
+
+Other changes in 1.1.0:
+
+- **NetBox 4.5.3 or later and Python 3.12 or later are required.**
+- **The Configuration page and API are restricted to superusers.** API changes also need a write-enabled token.
+- **A login with no groups claim now removes access.** Previously nothing was changed. In **Replace** mode the user's groups are removed, and if **Superuser Groups** is set the superuser flag is removed. Check that your IdP sends the claim before upgrading, and keep a local superuser account for recovery. See [Missing or Empty Groups Claim](#missing-or-empty-groups-claim).
+- **Groups are read only from the current login.** They are no longer taken from data saved at a previous login.
+- **Groups are also read from the ID token** when the IdP's userinfo response does not include the claim. If your IdP only put groups in the ID token, group sync did not work before and starts working now: in **Replace** mode, groups assigned by hand in NetBox are replaced by the mapped ones at the user's next login.
+- **Group names that cannot be used are skipped with a warning** instead of failing the login: with **Auto-create Groups**, names longer than 150 characters; in all cases, names that are not valid text.
+- There are no database changes.
+
 ## IdP Setup Guides
 
 ### Okta

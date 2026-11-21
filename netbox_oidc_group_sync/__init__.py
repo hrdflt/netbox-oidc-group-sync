@@ -5,7 +5,7 @@ class NetBoxOIDCGroupSyncConfig(PluginConfig):
     name = 'netbox_oidc_group_sync'
     verbose_name = 'OIDC Group Sync'
     description = 'Sync OIDC provider groups to NetBox/Django groups'
-    version = '0.1.0'
+    version = '1.1.0'
     author = 'Hardfault'
     author_email = ''
     base_url = 'oidc-group-sync'

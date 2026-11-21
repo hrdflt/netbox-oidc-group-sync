@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netbox-oidc-group-sync"
-version = "0.1.0"
+version = "1.1.0"
 description = "NetBox plugin for syncing OIDC provider groups to Django groups"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.12"
