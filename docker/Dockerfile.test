@@ -1,0 +1,28 @@
+ARG PYTHON_VERSION=3.12
+FROM docker.io/library/python:${PYTHON_VERSION}-slim
+
+ARG NETBOX_VERSION=4.5.3
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 --branch "v${NETBOX_VERSION}" \
+    https://github.com/netbox-community/netbox.git /opt/netbox
+
+# psycopg[c] needs libpq headers and a compiler; the binary wheel is fine for tests
+RUN sed -i 's/^psycopg\[c,pool\]/psycopg[binary,pool]/' /opt/netbox/requirements.txt \
+    && pip install -r /opt/netbox/requirements.txt
+
+COPY docker/configuration.py /opt/netbox/netbox/netbox/configuration.py
+COPY pyproject.toml MANIFEST.in README.md LICENSE /plugin/
+COPY netbox_oidc_group_sync /plugin/netbox_oidc_group_sync
+RUN pip install -e /plugin
+
+WORKDIR /opt/netbox/netbox
+CMD ["python", "manage.py", "test", "netbox_oidc_group_sync", "--parallel", "1", "--noinput"]

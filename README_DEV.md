@@ -8,6 +8,7 @@ This guide covers development workflow, iteration, and troubleshooting for contr
 ## Table of Contents
 
 - [Development Setup](#development-setup)
+- [Running Tests](#running-tests)
 - [Edit → Deploy → Test Cycle](#edit--deploy--test-cycle)
 - [Pip Caching Gotcha](#pip-caching-gotcha)
 - [Database Management](#database-management)
@@ -49,6 +50,46 @@ Operations to perform:
   Apply all migrations: netbox_oidc_group_sync
 Running migrations:
   Applying netbox_oidc_group_sync.0001_initial... OK
+```
+
+---
+
+## Running Tests
+
+Tests run inside Docker against a real NetBox, PostgreSQL and Redis. From the repo root:
+
+```bash
+docker compose -f docker/compose.test.yml run --rm -T --build netbox
+```
+
+Tear down afterwards (the database lives on tmpfs, so nothing is kept between runs):
+
+```bash
+docker compose -f docker/compose.test.yml down -v
+```
+
+The plugin package is mounted from your working tree, so after the first build you can drop `--build` and just re-run. Rebuild when `pyproject.toml` changes.
+
+To test against another supported NetBox release (4.5.3 or later), set `NETBOX_VERSION` to its tag without the `v`:
+
+```bash
+NETBOX_VERSION=4.5.10 docker compose -f docker/compose.test.yml run --rm -T --build netbox
+```
+
+To run a single module or pass other `manage.py test` options:
+
+```bash
+docker compose -f docker/compose.test.yml run --rm -T netbox \
+    python manage.py test netbox_oidc_group_sync.tests.test_api --parallel 1 --noinput
+```
+
+Podman works too (`podman compose ...`). Keep the `-T` flag.
+
+The compose project has a fixed name, so two runs at the same time (for example from two checkouts, or against two NetBox versions) share containers and break each other. Give each concurrent run its own project name with `-p`:
+
+```bash
+NETBOX_VERSION=4.5.10 docker compose -p oidc-test-4510 -f docker/compose.test.yml run --rm -T --build netbox
+docker compose -p oidc-test-4510 -f docker/compose.test.yml down -v
 ```
 
 ---
