@@ -170,7 +170,6 @@ If you need to start fresh (e.g., migration schema changed during development):
 cd /opt/netbox/netbox && python manage.py dbshell <<'EOF'
 DROP TABLE IF EXISTS netbox_oidc_group_sync_oidcgroupmapping_tags CASCADE;
 DROP TABLE IF EXISTS netbox_oidc_group_sync_oidcgroupmapping CASCADE;
-DROP TABLE IF EXISTS netbox_oidc_group_sync_oidcgroupsyncconfig_tags CASCADE;
 DROP TABLE IF EXISTS netbox_oidc_group_sync_oidcgroupsyncconfig CASCADE;
 DELETE FROM django_migrations WHERE app = 'netbox_oidc_group_sync';
 EOF
@@ -179,10 +178,9 @@ EOF
 Expected output:
 
 ```
+DROP TABLE       (or NOTICE: table does not exist, skipping)
 DROP TABLE
 DROP TABLE
-DROP TABLE       (or NOTICE: table does not exist, skipping)
-DROP TABLE       (or NOTICE: table does not exist, skipping)
 DELETE 1
 ```
 
@@ -287,7 +285,6 @@ To completely remove the plugin:
 cd /opt/netbox/netbox && python manage.py dbshell <<'EOF'
 DROP TABLE IF EXISTS netbox_oidc_group_sync_oidcgroupmapping_tags CASCADE;
 DROP TABLE IF EXISTS netbox_oidc_group_sync_oidcgroupmapping CASCADE;
-DROP TABLE IF EXISTS netbox_oidc_group_sync_oidcgroupsyncconfig_tags CASCADE;
 DROP TABLE IF EXISTS netbox_oidc_group_sync_oidcgroupsyncconfig CASCADE;
 DELETE FROM django_migrations WHERE app = 'netbox_oidc_group_sync';
 EOF
@@ -321,4 +318,4 @@ Fix: verify installed code, reinstall with `--no-cache-dir --force-reinstall`, t
 
 ### "'auth-api' is not a registered namespace"
 
-This happens when using `DynamicModelChoiceField` with `django.contrib.auth.models.Group`. NetBox's `DynamicModelChoiceField` requires models registered in NetBox's API router. Django's `auth.Group` is not registered. Use `forms.ModelChoiceField` instead.
+This happens when a form field points at `django.contrib.auth.models.Group`, which is not registered in NetBox's API router. Use NetBox's own group model, `users.models.Group`, as the plugin's forms do.
