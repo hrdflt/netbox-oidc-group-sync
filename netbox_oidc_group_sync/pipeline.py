@@ -152,11 +152,21 @@ def sync_oidc_groups(backend, user, response, *args, **kwargs):
             f"→ Django group '{mapping.group.name}'"
         )
 
-    # Auto-create groups if enabled (for OIDC groups without explicit mappings)
+    # Auto-create groups if enabled (for OIDC groups without explicit mappings).
+    # Groups are matched by name, so an existing NetBox group with the same
+    # name as an unmapped OIDC group is assigned as well.
     if config.auto_create_groups:
         mapped_oidc_names = set(m.oidc_group_name for m in mappings)
         unmapped_oidc_names = set(oidc_groups) - mapped_oidc_names
-        for oidc_name in unmapped_oidc_names:
+        name_max_length = Group._meta.get_field('name').max_length
+        for oidc_name in sorted(unmapped_oidc_names):
+            if len(oidc_name) > name_max_length:
+                logger.warning(
+                    "Not auto-creating group for OIDC group %r: name exceeds "
+                    "%d characters. Create an explicit mapping instead.",
+                    oidc_name, name_max_length,
+                )
+                continue
             group, created = Group.objects.get_or_create(name=oidc_name)
             if created:
                 logger.info(

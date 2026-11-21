@@ -140,9 +140,19 @@ After installation, navigate to **Plugins → OIDC Group Sync → Configuration*
 - **Sync Mode** — Replace or Additive (see [Sync Mode Behavior](#sync-mode-behavior))
 - **Group Claim Name** — The OIDC token claim containing group names (default: `groups`)
 - **Superuser Groups** — Comma-separated OIDC group names that grant superuser (see [Superuser Flag Mapping](#superuser-flag-mapping))
-- **Auto-create Groups** — Whether to create NetBox groups automatically from OIDC claims
+- **Auto-create Groups** — Whether to create NetBox groups automatically from OIDC claims (see [Auto-created Groups](#auto-created-groups))
 
 These settings are stored in the database and take effect immediately — no restart required after changing them.
+
+#### Auto-created Groups
+
+When **Auto-create Groups** is enabled, each OIDC group in the user's claim that has no explicit mapping is matched to a NetBox group **by name**. If no group with that name exists, it is created. Either way, the user is added to it.
+
+> **⚠️ A name match grants an existing group.** If the IdP sends a group called `Admins` and NetBox already has an `Admins` group, the user is added to it, with whatever permissions that group carries. Do not enable auto-create if users can create or rename their own groups at your IdP (self-service groups, for example). Use explicit group mappings instead.
+
+Auto-created groups are never deleted by the plugin. When a user is no longer in an OIDC group, they are removed from the NetBox group at their next login (in **Replace** mode), but the group itself stays until you delete it.
+
+OIDC group names longer than 150 characters (NetBox's group name limit) are skipped with a warning; add an explicit mapping for those.
 
 ## IdP Setup Guides
 

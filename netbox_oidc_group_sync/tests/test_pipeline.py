@@ -4,7 +4,6 @@ Tests for the social-auth pipeline function sync_oidc_groups.
 Run from the NetBox directory:
     python manage.py test netbox_oidc_group_sync.tests.test_pipeline
 """
-# TODO: Add auto-create tests
 from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
@@ -189,3 +188,71 @@ class IDTokenFallbackTestCase(TestCase):
             self.login({'email': 'carol@example.com'}, {'sub': 'carol'})
 
         self.assertTrue(any("['email']" in m and "['sub']" in m for m in logs.output))
+
+
+class AutoCreateGroupsTestCase(TestCase):
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='alice')
+        self.config = OIDCGroupSyncConfig.get_solo()
+        self.config.auto_create_groups = True
+        self.config.sync_mode = 'replace'
+        self.config.save()
+
+    def login(self, *groups):
+        sync_oidc_groups(backend=None, user=self.user, response={'groups': list(groups)})
+        return set(self.user.groups.values_list('name', flat=True))
+
+    def test_new_claim_creates_and_grants_group(self):
+        groups = self.login('engineering')
+
+        self.assertEqual(groups, {'engineering'})
+        self.assertEqual(Group.objects.filter(name='engineering').count(), 1)
+
+    def test_repeat_login_reuses_group(self):
+        self.login('engineering')
+
+        groups = self.login('engineering')
+
+        self.assertEqual(groups, {'engineering'})
+        self.assertEqual(Group.objects.filter(name='engineering').count(), 1)
+
+    def test_existing_group_with_same_name_is_granted(self):
+        Group.objects.create(name='netops')
+
+        groups = self.login('netops')
+
+        self.assertEqual(groups, {'netops'})
+
+    def test_overlong_claim_is_skipped(self):
+        with self.assertLogs('netbox_oidc_group_sync.pipeline', level='WARNING') as logs:
+            groups = self.login('x' * 151, 'engineering')
+
+        self.assertEqual(groups, {'engineering'})
+        self.assertTrue(any('name exceeds 150 characters' in m for m in logs.output))
+
+    def test_disabled_does_not_create_groups(self):
+        self.config.auto_create_groups = False
+        self.config.save()
+
+        groups = self.login('engineering')
+
+        self.assertEqual(groups, set())
+        self.assertFalse(Group.objects.filter(name='engineering').exists())
+
+    def test_group_removed_when_no_longer_in_claim(self):
+        self.login('engineering', 'support')
+
+        groups = self.login('support')
+
+        self.assertEqual(groups, {'support'})
+        self.assertTrue(Group.objects.filter(name='engineering').exists())
+
+    def test_additive_mode_keeps_existing_membership(self):
+        self.config.sync_mode = 'additive'
+        self.config.save()
+        self.user.groups.add(Group.objects.create(name='local-only'))
+
+        groups = self.login('engineering')
+
+        self.assertEqual(groups, {'local-only', 'engineering'})
